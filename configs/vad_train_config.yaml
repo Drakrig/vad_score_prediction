@@ -1,0 +1,32 @@
+batch_size: 128 # modify this to your batch size
+epochs: 5 # modify this to your number of epochs
+learning_rate: 0.00001 # modify this to your learning rate
+weight_decay: 0.01 # modify this to your weight decay
+mel_encoder_path: /path/to/ref_enc.pth # modify this to your mel encoder path
+mel_encoder_sr: 32000
+filter_length: 2048
+gin_channels: 1024
+hop_length: 640
+is_half: false # set to true if you want to use half precision training
+num_workers: 8 # modify this to your number of workers
+pin_memory: true # set to false if you encounter issues with memory
+projection_weights_path: /path/to/linear_proj.pth # modify this to your projection weights path
+shuffle: true
+sv_model_path: /path/to//pretrained_eres2netv2w24s4ep4.ckpt # modify this to your pre-trained model path
+sv_model_sr: 16000
+use_sv: true # False to train for GPT-SoVITSv2 non-Pro embeddings
+win_length: 2048
+data_dir: /path/to/data_dir/ # modify this to your dataset directory
+annotations_file: annotation.csv # modify this to your annotations file
+test_size: 0.1 # 0<= test_size < 1 for percentage split, 1 >= test_size for absolute number of samples
+limit_train_samples: -1 # -1 means no limit
+min_samples_threshold: 1000 # minimum number of samples per emotion label
+random_state: 42 # random state for reproducibility
+save_dir: /path/to/save/results/ # modify this to your save directory
+save_interval: 1 # save model every epoch
+logging_interval: 100 # log training progress every 100 steps
+save_interval_steps: 1000 # save model every 1000 steps
+model_version: v3 # modify this to desired model version
+model_id: mkrausio/EmoWhisper-AnS-Small-v0.1 
+loss_type: kl # use 'mse' to MSE loss only, 'kl' to add KL divergence loss for regularization
+kl_weight: 0.1 # weight for KL divergence loss when used
