@@ -1,13 +1,11 @@
 # VAD emotion scoring for audio files
 
 ## Model versioning
-In total there are 3 versions of the model architecture.
+There are three main versions of the model architecture:
 
-V1 uses MelEncoder described in [this paper](https://arxiv.org/abs/2106.03153) and [ERes2NetV2 Speaker Recognition Model](https://modelscope.cn/models/iic/speech_eres2netv2w24s4ep4_sv_zh-cn_16k-common) to get a feature embedding and simple MLP head to predict vector of VAD scores.
-
-V2 version uses BUD-E Whisper model to get the feature embedding and simple MLP head to predict vector of VAD scores.
-
-V3 version uses BUD-E Whisper model to get the feature embedding and a more complex 2 head system to predict means and standard deviations of VAD scores. This approach relate more with the whole three factor theory of emotions, since it represent the emotions as a spectrum. 
+- **V1:** Uses the MelEncoder as described in [this paper](https://arxiv.org/abs/2106.03153) and the [ERes2NetV2 Speaker Recognition Model](https://modelscope.cn/models/iic/speech_eres2netv2w24s4ep4_sv_zh-cn_16k-com).
+- **V2:** Utilizes the BUD-E Whisper model to extract feature embeddings and applies a simple MLP head to predict a vector of VAD scores.
+- **V3:** Also uses the BUD-E Whisper model for feature embeddings, but employs a more complex two-head system to predict the means and standard deviations of VAD scores. This approach better captures the variability in emotion annotations.
 
 ## Configuration files
 For simplicity reason, configuratuon is done through a YAML file. Check the "vad_train_config.yaml" file for example. All parameters that must be adjusted are marked with comments. Parameters that are NOT marked must stay as they are, since they are model specific and should not be changed.
@@ -27,7 +25,7 @@ The annotation file is expected to be `.csv` that uses `;` as separator. The fil
 
 ## How to abtain VAD scores for your audio files
 
-The question is quite tricky. If your dataset is containing the categorical empootion labels, you can use table described in [original paper page 15](https://www.researchgate.net/publication/222741832_Evidence_for_a_Three-Factor_Theory_of_Emotions) to convert them to the continuous pleasure, arousal and dominance means and standard deviations.
+If your dataset contains categorical emotion labels, you can use the mapping table described on page 15 of the [original paper](https://www.researchgate.net/publication/222741832_Evidence_for_a_Three-Factor_Theory_of_Emotions) to convert them to the continuous pleasure, arousal and dominance means and standard deviations.
 
 ## Credits
 
