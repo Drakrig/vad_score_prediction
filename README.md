@@ -7,6 +7,10 @@ There are three main versions of the model architecture:
 - **V2:** Utilizes the BUD-E Whisper model to extract feature embeddings and applies a simple MLP head to predict a vector of VAD scores.
 - **V3:** Also uses the BUD-E Whisper model for feature embeddings, but employs a more complex two-head system to predict the means and standard deviations of VAD scores. This approach better captures the variability in emotion annotations.
 
+## Weights
+
+Model weights for V3 model are available on [Hugging Face](https://huggingface.co/drakrig/vad_emotion_scorer). 
+
 ## Configuration files
 For simplicity reason, configuratuon is done through a YAML file. Check the "vad_train_config.yaml" file for example. All parameters that must be adjusted are marked with comments. Parameters that are NOT marked must stay as they are, since they are model specific and should not be changed.
 
@@ -26,6 +30,12 @@ The annotation file is expected to be `.csv` that uses `;` as separator. The fil
 ## How to abtain VAD scores for your audio files
 
 If your dataset contains categorical emotion labels, you can use the mapping table described on page 15 of the [original paper](https://www.researchgate.net/publication/222741832_Evidence_for_a_Three-Factor_Theory_of_Emotions) to convert them to the continuous pleasure, arousal and dominance means and standard deviations.
+
+## Roadmap
+
+- [+] Upload V3 weights to Hugging Face
+- [ ] Upload formatted emotion to VAD score mapping table
+- [ ] Add more documentation on how to use the model
 
 ## Credits
 
