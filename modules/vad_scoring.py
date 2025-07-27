@@ -124,5 +124,6 @@ class VADScoringModelV3(nn.Module):
         self.means_head.load_state_dict(states_dict["means_head_state_dict"])
         self.stds_head.load_state_dict(states_dict["stds_head_state_dict"])
         self.projection.load_state_dict(states_dict["projection_state_dict"])
-        del states_dict["head_state_dict"]
+        del states_dict["means_head_state_dict"]
+        del states_dict["stds_head_state_dict"]
         del states_dict["projection_state_dict"]
