@@ -26,15 +26,18 @@ The annotation file is expected to be `.csv` that uses `;` as separator. The fil
 - `arousal_std` - the standard deviation of the arousal score for the audio file
 - `dominance_mean` - the mean dominance score for the audio file
 - `dominance_std` - the standard deviation of the dominance score for the audio file
+- `verified_emotion` - the verified emotion label for the audio file based on scores means. It used for balancing the emotion distribution in the dataset in case some emotions are overrepresented or underrepresented. You alwas have the option to not use this column, but make sure to mofiy the `train.py` script accordingly.
 
 ## How to abtain VAD scores for your audio files
 
 If your dataset contains categorical emotion labels, you can use the mapping table described on page 15 of the [original paper](https://www.researchgate.net/publication/222741832_Evidence_for_a_Three-Factor_Theory_of_Emotions) to convert them to the continuous pleasure, arousal and dominance means and standard deviations.
 
+Also, you can download extracted mapping table from Google Drive [here](https://drive.google.com/file/d/1AajCZiIwAPrQ7W2bbGpgBFyAT2b0nzz_/view?usp=sharing).
+
 ## Roadmap
 
 - [+] Upload V3 weights to Hugging Face
-- [ ] Upload formatted emotion to VAD score mapping table
+- [*] Upload formatted emotion to VAD score mapping table
 - [ ] Add more documentation on how to use the model
 
 ## Credits
