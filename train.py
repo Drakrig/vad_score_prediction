@@ -4,6 +4,7 @@ import pandas as pd
 from datetime import datetime
 from shutil import copy
 from tqdm import tqdm
+import re
 
 from sklearn.model_selection import train_test_split
 from modules.vad_scoring import VADScoringModel, VADScoringModelV2, VADScoringModelV3
@@ -30,9 +31,9 @@ def load_config(config_path: str) -> TrainConfig:
 
 def save_checkpoint(model, save_path: str, epoch: int, step: int, config: TrainConfig): 
     save_path = Path(config["save_dir"]) / f"vad_model_epoch_{epoch+1}_step_{step}.pth"
-    if config["model_version"] == "v1":
+    if re.search(r'v1', config["model_version"]) is not None:
         torch.save(model.classification_head.state_dict(), save_path)
-    elif config["model_version"] == "v2":
+    elif re.search(r'v2', config["model_version"]) is not None:
         torch.save({
             "head_state_dict": model.head.state_dict(),
             "projection_state_dict": model.projection.state_dict()
@@ -70,7 +71,7 @@ def train_model(model, dataloader: DataLoader, val_dataloader: DataLoader, devic
     """Train the VAD scoring model."""
     criterion = nn.MSELoss()
     # For V1 model we train the classification head only
-    if config["model_version"] == "v1":
+    if re.search(r'v1', config["model_version"]) is not None:
         optimizer = optim.AdamW(model.classification_head.parameters(), lr=config["learning_rate"], weight_decay=config["weight_decay"])
     else:
         # For V2 and V3 model we train the classification head and projection layer
@@ -79,7 +80,7 @@ def train_model(model, dataloader: DataLoader, val_dataloader: DataLoader, devic
         # Projection is fully trainable
         for name, param in model.projection.named_parameters():
                 decay.append(param)
-        if config["model_version"] == "v2":
+        if re.search(r'v2', config["model_version"]) is not None:
             # PReLU is recommended not to be train with weight decay
             for name, param in model.head.named_parameters():
                 if 'prelu' in name:  # exclude PReLU alpha from weight decay
@@ -124,19 +125,21 @@ def train_model(model, dataloader: DataLoader, val_dataloader: DataLoader, devic
     for epoch in range(config["epochs"]):
         total_loss = 0.0
         for batch in tqdm(dataloader, desc=f"Epoch {epoch+1}/{config['epochs']}"):
-            if config["model_version"] == "v1":
+            if re.search(r'v1', config["model_version"]) is not None:
                 specs, audio_tensors, vad_means, vad_stds = batch
                 specs, audio_tensors = specs.to(device), audio_tensors.to(device)
             else:
                 input_features, decoder_input_ids, vad_means, vad_stds = batch
             vad_means = vad_means.to(device)
             optimizer.zero_grad()
-            if config["model_version"] == "v1":
+           
+            if re.search(r'v1', config["model_version"]) is not None:
                 predicted_means = model(specs, audio_tensors)
-            elif config["model_version"] == "v2":
+            elif re.search(r'v2', config["model_version"]) is not None:
                 predicted_means = model(input_features, decoder_input_ids)
             else:
                 predicted_means, predicted_stds = model(input_features, decoder_input_ids)
+            
             if config["loss_type"] == "mse":
                 loss = criterion(predicted_means, vad_means)
             else:
@@ -165,7 +168,7 @@ def train_model(model, dataloader: DataLoader, val_dataloader: DataLoader, devic
         val_loss = 0.0
         with torch.no_grad():
             for val_batch in val_dataloader:
-                if config["model_version"] == "v1":
+                if re.search(r'v1', config["model_version"]) is not None:
                     val_specs, val_audio_tensors, val_vad_means, _ = val_batch
                     val_specs, val_audio_tensors = val_specs.to(device), val_audio_tensors.to(device)
                 else:
@@ -174,12 +177,14 @@ def train_model(model, dataloader: DataLoader, val_dataloader: DataLoader, devic
                     #val_audio_tensors = val_decoder_input_ids.to(device)
                 val_vad_means = val_vad_means.to(device)
                 val_vad_stds = val_vad_stds.to(device) if config["loss_type"] == "kl" else None
-                if config["model_version"] == "v1":
+                
+                if re.search(r'v1', config["model_version"]) is not None:
                     val_means_predicted = model(val_specs, val_audio_tensors)
-                elif config["model_version"] == "v2":
+                elif re.search(r'v2', config["model_version"]) is not None:
                     val_means_predicted = model(val_input_features, val_decoder_input_ids)
                 else:
                     val_means_predicted, val_stds_predicted = model(val_input_features, val_decoder_input_ids)
+                
                 if config["loss_type"] == "mse":
                     loss = criterion(val_means_predicted, val_vad_means)
                 else:
@@ -254,10 +259,16 @@ def main():
     val_dataloader = create_dataloader(val_dataset, config)
 
     # Initialize model
-    if config["model_version"] == "v3":
+    if re.search(r'v3', config["model_version"]) is not None:
         print("Using VADScoringModelV3")
-        model = VADScoringModelV3(device, is_half=config["is_half"], model_id=config["model_id"])
-    elif config["model_version"] == "v2":
+        model = VADScoringModelV3(
+                device, 
+                out_channels=config["out_channels"], 
+                is_half=config["is_half"], 
+                model_id=config["model_id"], 
+                version=config["model_version"]
+                )
+    elif re.search(r'v2', config["model_version"]) is not None:
         print("Using VADScoringModelV2")
         model = VADScoringModelV2(device, is_half=config["is_half"], model_id=config["model_id"])
     else:
