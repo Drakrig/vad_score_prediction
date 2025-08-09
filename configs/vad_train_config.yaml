@@ -1,32 +1,48 @@
-batch_size: 128 # modify this to your batch size
-epochs: 5 # modify this to your number of epochs
+# General training parameters 
+batch_size: 128 # modify this to your batch size, 128 consumes ~20Gb of VRAM
+epochs: 20 # modify this to your number of epochs
 learning_rate: 0.00001 # modify this to your learning rate
 weight_decay: 0.01 # modify this to your weight decay
+is_half: false # set to true if you want to use half precision training
+
+# Dataloader parameters
+num_workers: 8 # modify this to your number of workers
+pin_memory: true # set to false if you encounter issues with memory
+
+# MelEncoder and SV model parameters
 mel_encoder_path: /path/to/ref_enc.pth # modify this to your mel encoder path
 mel_encoder_sr: 32000
 filter_length: 2048
 gin_channels: 1024
 hop_length: 640
-is_half: false # set to true if you want to use half precision training
-num_workers: 8 # modify this to your number of workers
-pin_memory: true # set to false if you encounter issues with memory
 projection_weights_path: /path/to/linear_proj.pth # modify this to your projection weights path
-shuffle: true
 sv_model_path: /path/to//pretrained_eres2netv2w24s4ep4.ckpt # modify this to your pre-trained model path
 sv_model_sr: 16000
+prelu_weights_path : /path/to/prelu_weights.pth # modify this to your prelu weights path
 use_sv: true # False to train for GPT-SoVITSv2 non-Pro embeddings
 win_length: 2048
+
+# Dataset parameters
 data_dir: /path/to/data_dir/ # modify this to your dataset directory
-annotations_file: annotation.csv # modify this to your annotations file
+annotations_file: annotation.csv # modify this to your annotations file, it must be in the data_dir
 test_size: 0.1 # 0<= test_size < 1 for percentage split, 1 >= test_size for absolute number of samples
-limit_train_samples: -1 # -1 means no limit
-min_samples_threshold: 1000 # minimum number of samples per emotion label
+limit_train_samples: -1 # samples PER EMOTION, -1 means no limit
+min_samples_threshold: -1 # minimum number of samples per emotion label
 random_state: 42 # random state for reproducibility
+
+# Saving and logging parameters
 save_dir: /path/to/save/results/ # modify this to your save directory
-save_interval: 1 # save model every epoch
-logging_interval: 100 # log training progress every 100 steps
-save_interval_steps: 1000 # save model every 1000 steps
+save_interval: 1 # save model every EPOCH
+logging_interval: 100 # log training progress every 100 STEPS
+
+# Model architecture parameters
 model_version: v3 # modify this to desired model version
-model_id: mkrausio/EmoWhisper-AnS-Small-v0.1 
+model_id: mkrausio/EmoWhisper-AnS-Small-v0.1
+out_channels: 16 # for projection in v3, modify this to your desired output channels
+
+# Loss parameters
 loss_type: kl # use 'mse' to MSE loss only, 'kl' to add KL divergence loss for regularization
-kl_weight: 0.1 # weight for KL divergence loss when used
+kl_cycle_length: 1 # Amount of steps to reset weight for KL divergence loss, if set to 1, it will always stay constant to max value
+kl_max_weight: 1 # Max weight for KL divergence loss
+kl_min_weight: 1 # Min weight for KL divergence loss
+mean_loss_weight: 1.0 # weight for mean loss
