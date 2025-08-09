@@ -1,11 +1,14 @@
 import yaml
 from pathlib import Path
 import pandas as pd
+from datetime import datetime
+from shutil import copy
+from tqdm import tqdm
+
 from sklearn.model_selection import train_test_split
 from modules.vad_scoring import VADScoringModel, VADScoringModelV2, VADScoringModelV3
 from data_tools.data_processing import create_dataset, create_dataloader
 from configs.configuration_classes import TrainConfig
-from tqdm import tqdm
 
 import torch
 from torch import nn, optim
@@ -205,6 +208,12 @@ def main():
     config_path = "configs/vad_train_config.yaml"
     config = load_config(config_path)
     print_config(config)
+
+    # Configure save directory
+    config["save_dir"] = Path(config["save_dir"]) / f"{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}_scorer_{config['model_version']}_training"
+    config["save_dir"].mkdir(parents=True, exist_ok=True)
+    (config["save_dir"] / "configs").mkdir(parents=True, exist_ok=True)
+    copy(config_path, config["save_dir"] / config_path)
 
     # TensorBoard setup
     log_dir = Path(config["save_dir"]) / "logs"
