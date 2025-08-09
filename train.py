@@ -150,10 +150,6 @@ def train_model(model, dataloader: DataLoader, val_dataloader: DataLoader, devic
                 current_epoch_step = (step - 1) % steps_per_epoch + 1
                 print(f"Step [{current_epoch_step}], Loss: {(total_loss / current_epoch_step):.4f}")
                 writer.add_scalar("Loss/train", loss.item(), step)
-            if accelerator.is_main_process and (step % config["save_interval_steps"] == 0):
-                # Save model checkpoint
-                save_path = Path(config["save_dir"]) / f"vad_model_step_{epoch+1}_{step}.pth"
-                save_checkpoint(accelerator.unwrap_model(model), save_path, epoch, step, config)
 
         scheduler.step()
         if accelerator.is_main_process:
