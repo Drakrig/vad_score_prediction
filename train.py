@@ -66,6 +66,18 @@ def kl_divergence_gaussians(mu_pred, std_pred, mu_prior, std_prior):
 
     return kl.mean()  # average over batch and targets
 
+def kl_impact(step: int, config: TrainConfig) -> float:
+    """
+    Calculate the KL divergence weight based on the current step.
+    The weight increases linearly from 0 to config["kl_weight"] over the first config["kl_warmup_steps"] steps.
+    After that, it remains constant.
+    """
+    cycle_pos = step % (config["kl_cycle_length"]+1)
+    if cycle_pos == config["kl_cycle_length"]:
+        return config["kl_max_weight"]
+    else:
+        return config["kl_min_weight"] + (config["kl_max_weight"] - config["kl_min_weight"]) * (cycle_pos / config["kl_cycle_length"])
+
 
 def train_model(model, dataloader: DataLoader, val_dataloader: DataLoader, device: str, config: TrainConfig, writer: SummaryWriter):
     """Train the VAD scoring model."""
@@ -144,7 +156,8 @@ def train_model(model, dataloader: DataLoader, val_dataloader: DataLoader, devic
                 loss = criterion(predicted_means, vad_means)
             else:
                 # KL Divergence loss
-                loss = criterion(predicted_means, vad_means) + kl_divergence_gaussians(predicted_means, predicted_stds, vad_means, vad_stds) * config["kl_weight"]
+                loss = config["mean_loss_weight"] * criterion(predicted_means, vad_means)\
+                     + kl_impact(step, config) * kl_divergence_gaussians(predicted_means, predicted_stds, vad_means, vad_stds)
                 
             accelerator.backward(loss)
             optimizer.step()
@@ -189,7 +202,8 @@ def train_model(model, dataloader: DataLoader, val_dataloader: DataLoader, devic
                     loss = criterion(val_means_predicted, val_vad_means)
                 else:
                     # KL Divergence loss
-                    loss = criterion(val_means_predicted, val_vad_means) + kl_divergence_gaussians(val_means_predicted, val_stds_predicted, val_vad_means, val_vad_stds) * config["kl_weight"]
+                    loss = config["mean_loss_weight"] * criterion(val_means_predicted, val_vad_means)\
+                         + kl_divergence_gaussians(val_means_predicted, val_stds_predicted, val_vad_means, val_vad_stds) * config["kl_max_weight"]
                 val_loss += loss.item()
         if accelerator.is_main_process:
             val_loss /= len(val_dataloader)
