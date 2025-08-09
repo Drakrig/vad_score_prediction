@@ -12,7 +12,7 @@ For more detailed information about the architecture, check the [architecture ov
 
 ## Weights
 
-Model weights for V3 model are available on [Hugging Face](https://huggingface.co/drakrig/vad_emotion_scorer). The model was trained on the Laion's Got Talent (Enhanced Flash Annotations and Long Captions) dataset with Method 1 annotation approach, which is described in detail in the [annotation methodology document](doc/annotation_method.md).
+Model weights for V3 model are available on [Hugging Face](https://huggingface.co/drakrig/vad_emotion_scorer). The model was trained on the Laion's Got Talent (Enhanced Flash Annotations and Long Captions) dataset with Variant 1 annotation approach, which is described in detail in the [annotation methodology document](doc/annotation_method.md).
 
 ## Configuration files
 For simplicity reason, configuratuon is done through a YAML file. Check the "vad_train_config.yaml" file for example. All parameters that must be adjusted are marked with comments. Parameters that are NOT marked with comments must stay as they are, since they are model specific and should not be changed.
