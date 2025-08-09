@@ -202,12 +202,6 @@ def train_model(model, dataloader: DataLoader, val_dataloader: DataLoader, devic
             save_path = Path(config["save_dir"]) / f"vad_model_epoch_{epoch+1}_{step}.pth"
             save_checkpoint(accelerator.unwrap_model(model), save_path, epoch, step, config)
     
-    #Save results
-    if accelerator.is_main_process:
-        # Save model checkpoint
-        save_path = Path(config["save_dir"]) / "vad_model_final.pth"
-        save_checkpoint(accelerator.unwrap_model(model), save_path, config["epochs"], step, config)
-
 def main():
     # Load configuration
     config_path = "configs/vad_train_config.yaml"
