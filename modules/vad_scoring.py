@@ -73,7 +73,7 @@ class VADScoringModelV2(nn.Module):
 
 class VADScoringModelV3(nn.Module):
     """Model to predict statistical characteristics of VAD (varience,arousal,dominance) scores using a reference encoder based on BUD-E-Whisper."""
-    def __init__(self, device, is_half=True, model_id='mkrausio/EmoWhisper-AnS-Small-v0.1'):
+    def __init__(self, out_channels, device, is_half=True, model_id='mkrausio/EmoWhisper-AnS-Small-v0.1'):
         super(VADScoringModelV3, self).__init__()
         self.ref_encoder = RefEncoderWhisper(device, is_half, model_id)
         # Freeze the reference encoder
@@ -82,12 +82,12 @@ class VADScoringModelV3(nn.Module):
         # Last hidden state shape is (batch_size, 1500, 768)
         self.projection = nn.Conv1d(
             in_channels=768,
-            out_channels=256,
+            out_channels=out_channels,
             kernel_size=1
         )
         self.means_head = nn.Sequential(
             nn.Flatten(),
-            nn.Linear(1500 * 256, 512),
+            nn.Linear(1500 * out_channels, 512),
             nn.PReLU(),
             nn.Dropout(0.25),
             nn.Linear(512, 3),
@@ -95,7 +95,7 @@ class VADScoringModelV3(nn.Module):
         )
         self.stds_head = nn.Sequential(
             nn.Flatten(),
-            nn.Linear(1500 * 256, 512),
+            nn.Linear(1500 * out_channels, 512),
             nn.PReLU(),
             nn.Dropout(0.25),
             nn.Linear(512, 3),
