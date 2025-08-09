@@ -115,20 +115,17 @@ def train_model(model, dataloader: DataLoader, val_dataloader: DataLoader, devic
     accelerator = accelerate.Accelerator()
     model, optimizer, dataloader = accelerator.prepare(model, optimizer, dataloader)
     model = model.to(device)
-    # Freeze the reference encoder parameters
-    
+
+    step = 0
     steps_per_epoch = len(dataloader)
     for epoch in range(config["epochs"]):
         total_loss = 0.0
-        model.train()
-        step = 0
         for batch in tqdm(dataloader, desc=f"Epoch {epoch+1}/{config['epochs']}"):
             if config["model_version"] == "v1":
                 specs, audio_tensors, vad_means, vad_stds = batch
                 specs, audio_tensors = specs.to(device), audio_tensors.to(device)
             else:
                 input_features, decoder_input_ids, vad_means, vad_stds = batch
-                #audio_tensors = audio_tensors.to(device)
             vad_means = vad_means.to(device)
             optimizer.zero_grad()
             if config["model_version"] == "v1":
@@ -144,27 +141,28 @@ def train_model(model, dataloader: DataLoader, val_dataloader: DataLoader, devic
                 loss = criterion(predicted_means, vad_means) + kl_divergence_gaussians(predicted_means, predicted_stds, vad_means, vad_stds) * config["kl_weight"]
                 
             accelerator.backward(loss)
-            #loss.backward()
             optimizer.step()
 
             total_loss += loss.item()
             step += 1
             # print loss every n steps
             if accelerator.is_main_process and (step % config["logging_interval"] == 0):
-                print(f"Step [{len(stats['train_loss'])}], Loss: {loss.item()}")
-                writer.add_scalar("Loss/train", loss.item(), epoch * step + step)
+                current_epoch_step = (step - 1) % steps_per_epoch + 1
+                print(f"Step [{current_epoch_step}], Loss: {(total_loss / current_epoch_step):.4f}")
+                writer.add_scalar("Loss/train", loss.item(), step)
             if accelerator.is_main_process and (step % config["save_interval_steps"] == 0):
                 # Save model checkpoint
                 save_path = Path(config["save_dir"]) / f"vad_model_step_{epoch+1}_{step}.pth"
                 save_checkpoint(accelerator.unwrap_model(model), save_path, epoch, step, config)
 
         scheduler.step()
-        print(f"Epoch [{epoch+1}/{config['epochs']}], Loss: {total_loss/len(dataloader)}")
-        # Log training loss
-        writer.add_scalar("Loss/train_epoch", total_loss / len(dataloader), epoch)
-        stats["train_loss"].append(total_loss / len(dataloader))
+        if accelerator.is_main_process:
+            total_loss /= len(dataloader)
+            print(f"Epoch [{epoch+1}/{config['epochs']}], Loss: {total_loss}")
+            # Log training loss
+            writer.add_scalar("Loss/train_epoch", total_loss, epoch)
+            stats["train_loss"].append(total_loss)
         # Calculate validation loss
-        model.eval()
         val_loss = 0.0
         with torch.no_grad():
             for val_batch in val_dataloader:
@@ -189,10 +187,11 @@ def train_model(model, dataloader: DataLoader, val_dataloader: DataLoader, devic
                     # KL Divergence loss
                     loss = criterion(val_means_predicted, val_vad_means) + kl_divergence_gaussians(val_means_predicted, val_stds_predicted, val_vad_means, val_vad_stds) * config["kl_weight"]
                 val_loss += loss.item()
-        val_loss /= len(val_dataloader)
-        writer.add_scalar("Loss/val_epoch", val_loss, epoch)
-        stats["val_loss"].append(val_loss)
-        print(f"Validation Loss after epoch {epoch+1}: {val_loss}")
+        if accelerator.is_main_process:
+            val_loss /= len(val_dataloader)
+            writer.add_scalar("Loss/val_epoch", val_loss, epoch)
+            stats["val_loss"].append(val_loss)
+            print(f"Validation Loss after epoch {epoch+1}: {val_loss}")
         # Save head checkpoint 
         if accelerator.is_main_process and (epoch + 1) % config["save_interval"] == 0:
             # Save model checkpoint
