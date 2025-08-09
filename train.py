@@ -227,12 +227,13 @@ def main():
     data_dir = Path(config["data_dir"])
     csv_file_path = data_dir / config["annotations_file"]
     df = pd.read_csv(csv_file_path, sep=";")
-    # Drop classes with less than min_samples_threshold
-    df = df[df['verified_emotion'].map(df['verified_emotion'].value_counts()) >= config["min_samples_threshold"]]
-    # Find the smallest emotion class
-    max_samples_per_emotion = df['verified_emotion'].value_counts().sort_values(ascending=True)[0]
-    # Limit each emotion class to max_samples_per_emotion
-    df = df.groupby('verified_emotion').apply(lambda x: x.sample(n=max_samples_per_emotion, random_state=config["random_state"])).reset_index(drop=True)
+    if config["min_samples_threshold"] > 0:
+        # Drop classes with less than min_samples_threshold
+        df = df[df['verified_emotion'].map(df['verified_emotion'].value_counts()) >= config["min_samples_threshold"]]
+        # Find the smallest emotion class
+        max_samples_per_emotion = df['verified_emotion'].value_counts().sort_values(ascending=True)[0]
+        # Limit each emotion class to max_samples_per_emotion
+        df = df.groupby('verified_emotion').apply(lambda x: x.sample(n=max_samples_per_emotion, random_state=config["random_state"])).reset_index(drop=True)
 
     if config["limit_train_samples"] > 0:
         # Limit the number of samples in the training set
