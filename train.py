@@ -170,7 +170,7 @@ def train_model(model, dataloader: DataLoader, val_dataloader: DataLoader, devic
                 print(f"Step [{current_epoch_step}], Loss: {(total_loss / current_epoch_step):.4f}")
                 writer.add_scalar("Loss/train", loss.item(), step)
 
-        scheduler.step()
+            scheduler.step()
         if accelerator.is_main_process:
             total_loss /= len(dataloader)
             print(f"Epoch [{epoch+1}/{config['epochs']}], Loss: {total_loss}")
