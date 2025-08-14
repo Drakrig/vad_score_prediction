@@ -9,7 +9,6 @@ import re
 from sklearn.model_selection import train_test_split
 from modules.vad_scoring import VADScoringModel, VADScoringModelV2, VADScoringModelV3
 from data_tools.data_processing import create_dataset, create_dataloader
-from configs.configuration_classes import TrainConfig
 
 import torch
 from torch import nn, optim
@@ -17,19 +16,19 @@ from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
 import accelerate
 
-def print_config(config: TrainConfig):
+def print_config(config: dict):
     """Print the training configuration."""
     print("Training Configuration:")
     for key, value in config.items():
         print(f"{key}: {value}")
 
-def load_config(config_path: str) -> TrainConfig:
+def load_config(config_path: str) -> dict:
     """Load configuration from a YAML file."""
     with open(config_path, 'r') as file:
         config_dict = yaml.safe_load(file)
-    return TrainConfig(**config_dict)
+    return config_dict
 
-def save_checkpoint(model, save_path: str, epoch: int, step: int, config: TrainConfig): 
+def save_checkpoint(model, save_path: str, epoch: int, step: int, config: dict): 
     save_path = Path(config["save_dir"]) / f"vad_model_epoch_{epoch+1}_step_{step}.pth"
     if re.search(r'v1', config["model_version"]) is not None:
         torch.save(model.classification_head.state_dict(), save_path)
@@ -66,7 +65,7 @@ def kl_divergence_gaussians(mu_pred, std_pred, mu_prior, std_prior):
 
     return kl.mean()  # average over batch and targets
 
-def kl_impact(step: int, config: TrainConfig) -> float:
+def kl_impact(step: int, config: dict) -> float:
     """
     Calculate the KL divergence weight based on the current step.
     The weight increases linearly from 0 to config["kl_weight"] over the first config["kl_warmup_steps"] steps.
@@ -79,7 +78,7 @@ def kl_impact(step: int, config: TrainConfig) -> float:
         return config["kl_min_weight"] + (config["kl_max_weight"] - config["kl_min_weight"]) * (cycle_pos / config["kl_cycle_length"])
 
 
-def train_model(model, dataloader: DataLoader, val_dataloader: DataLoader, device: str, config: TrainConfig, writer: SummaryWriter):
+def train_model(model, dataloader: DataLoader, val_dataloader: DataLoader, device: str, config: dict, writer: SummaryWriter):
     """Train the VAD scoring model."""
     criterion = nn.MSELoss()
     # For V1 model we train the classification head only
