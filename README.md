@@ -5,14 +5,17 @@ There are three main versions of the model architecture:
 
 - **V1:** Uses the MelEncoder as described in [this paper](https://arxiv.org/abs/2106.03153) and the [ERes2NetV2 Speaker Recognition Model](https://modelscope.cn/models/iic/speech_eres2netv2w24s4ep4_sv_zh-cn_16k-com).
 - **V2:** Utilizes the BUD-E Whisper model to extract feature embeddings and applies a simple MLP head to predict a vector of VAD scores.
-- **V3:** Also uses the BUD-E Whisper model for feature embeddings, but employs a more complex two-head system to predict the means and standard deviations of VAD scores. This approach better captures the variability in emotion annotations.
+- **V3:** Also uses the [BUD-E Whisper](https://huggingface.co/laion/BUD-E-Whisper) model for feature embeddings, but employs a more complex two-head system to predict the means and standard deviations of VAD scores. This approach better captures the variability in emotion annotations.
 - **V3s:** Similar to V3, but uses GELU activation instead of PReLU in the MLP heads. It has almost the same performance as V3, but is more efficient in terms of memory usage.
 
 For more detailed information about the architecture, check the [architecture overview](doc/architecture_overview.md) document.
 
 ## Weights
 
-Model weights for V3 model are available on [Hugging Face](https://huggingface.co/drakrig/vad_emotion_scorer). The model was trained on the Laion's Got Talent (Enhanced Flash Annotations and Long Captions) dataset with Variant 1 annotation approach, which is described in detail in the [annotation methodology document](doc/annotation_method.md).
+Model weights are available on [Hugging Face](https://huggingface.co/drakrig/vad_emotion_scorer). At the moment (18.08.2025) the following weights are available:
+1. **V3** weight in root directory of the repository. The model was trained on the Laion's Got Talent (Enhanced Flash Annotations and Long Captions) dataset with Variant 1 annotation approach, which is described in detail in the [annotation methodology document](doc/annotation_method.md).
+
+2. **V3s** weight in the `scorer_v3s_16_final` directory. This model was trained on the same dataset but with Variant 2 annotation approach, which is described in the same document. The model uses GELU activation instead of PReLU in the MLP heads, as well as projection layers applied to encoder output embeddings. This model is more memory efficient and has almost the same performance (loss wise) as V3. Model configuration is available in the `scorer_v3s_16_final/configs/vad_train_config.yaml` file.
 
 ## Configuration files
 For simplicity reason, configuratuon is done through a YAML file. Check the "vad_train_config.yaml" file for example. All parameters that must be adjusted are marked with comments. Parameters that are NOT marked with comments must stay as they are, since they are model specific and should not be changed.
@@ -40,9 +43,10 @@ Also, you can download extracted mapping table from Google Drive [here](https://
 ## Roadmap
 
 - [+] Upload V3 weights to Hugging Face
-- [ ] Upload updated weights to Hugging Face
-- [*] Upload formatted emotion to VAD score mapping table
+- [+] Upload V3s weights to Hugging Face
+- [+] Upload formatted emotion to VAD score mapping table
 - [ ] Add more documentation on how to use the model
+- [ ] Implement and train V1 model with mean and standard deviation heads
 
 ## Credits
 
