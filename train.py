@@ -143,13 +143,15 @@ def train_model(model, dataloader: DataLoader, val_dataloader: DataLoader, devic
                 input_features, decoder_input_ids, vad_means, vad_stds = batch
             vad_means = vad_means.to(device)
             optimizer.zero_grad()
-           
-            if re.search(r'v1', config["model_version"]) is not None:
-                predicted_means = model(specs, audio_tensors)
+
+            if re.search(r'v1s', config["model_version"]) is not None:
+                    predicted_means, predicted_stds = model(specs, audio_tensors, normalize=config["normalize_embeddings"])
             elif re.search(r'v2', config["model_version"]) is not None:
                 predicted_means = model(input_features, decoder_input_ids)
-            else:
+            elif re.search(r'v3', config["model_version"]) is not None:
                 predicted_means, predicted_stds = model(input_features, decoder_input_ids)
+            else: # v1
+                predicted_means = model(specs, audio_tensors)
             
             if config["loss_type"] == "mse":
                 loss = criterion(predicted_means, vad_means)
