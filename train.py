@@ -7,7 +7,7 @@ from tqdm import tqdm
 import re
 
 from sklearn.model_selection import train_test_split
-from modules.vad_scoring import VADScoringModel, VADScoringModelV2, VADScoringModelV3
+from modules.vad_scoring import VADScoringModel, VADScoringModelV2, VADScoringModelV3, VADScoringModelTwoHeaded, VADScoringModelTwoHeadedV2
 from data_tools.data_processing import create_dataset, create_dataloader
 
 import torch
@@ -145,7 +145,7 @@ def train_model(model, dataloader: DataLoader, val_dataloader: DataLoader, devic
             optimizer.zero_grad()
 
             if re.search(r'v1s', config["model_version"]) is not None:
-                    predicted_means, predicted_stds = model(specs, audio_tensors, normalize=config["normalize_embeddings"])
+                predicted_means, predicted_stds = model(specs, audio_tensors, normalize=config["normalize_embeddings"])
             elif re.search(r'v2', config["model_version"]) is not None:
                 predicted_means = model(input_features, decoder_input_ids)
             elif re.search(r'v3', config["model_version"]) is not None:
@@ -182,7 +182,7 @@ def train_model(model, dataloader: DataLoader, val_dataloader: DataLoader, devic
         val_loss = 0.0
         with torch.no_grad():
             for val_batch in val_dataloader:
-                if re.search(r'v1', config["model_version"]) is not None:
+                if config["model_version"] == "v1" or config["model_version"] == "v1s":
                     val_specs, val_audio_tensors, val_vad_means, _ = val_batch
                     val_specs, val_audio_tensors = val_specs.to(device), val_audio_tensors.to(device)
                 else:
@@ -192,12 +192,14 @@ def train_model(model, dataloader: DataLoader, val_dataloader: DataLoader, devic
                 val_vad_means = val_vad_means.to(device)
                 val_vad_stds = val_vad_stds.to(device) if config["loss_type"] == "kl" else None
                 
-                if re.search(r'v1', config["model_version"]) is not None:
-                    val_means_predicted = model(val_specs, val_audio_tensors)
+                if re.search(r'v1s', config["model_version"]) is not None:
+                    val_means_predicted, val_stds_predicted = model(val_specs, val_audio_tensors, normalize=config["normalize_embeddings"])
                 elif re.search(r'v2', config["model_version"]) is not None:
                     val_means_predicted = model(val_input_features, val_decoder_input_ids)
-                else:
+                elif re.search(r'v3', config["model_version"]) is not None:
                     val_means_predicted, val_stds_predicted = model(val_input_features, val_decoder_input_ids)
+                else: # v1
+                    val_means_predicted = model(val_specs, val_audio_tensors)
                 
                 if config["loss_type"] == "mse":
                     loss = criterion(val_means_predicted, val_vad_means)
@@ -270,16 +272,24 @@ def main():
     # Initialize model
     if re.search(r'v3', config["model_version"]) is not None:
         print("Using VADScoringModelV3")
-        model = VADScoringModelV3(
-                device, 
-                out_channels=config["out_channels"], 
-                is_half=config["is_half"], 
-                model_id=config["model_id"], 
-                version=config["model_version"]
-                )
+        model = VADScoringModelV3(device, out_channels=config["out_channels"], is_half=config["is_half"], model_id=config["model_id"], version=config["model_version"])
     elif re.search(r'v2', config["model_version"]) is not None:
         print("Using VADScoringModelV2")
         model = VADScoringModelV2(device, is_half=config["is_half"], model_id=config["model_id"])
+    elif re.search(r'v1s', config["model_version"]) is not None:
+        print("Using Two headed VADScoringModel")
+        model = VADScoringModelTwoHeadedV2(
+            sv_path=config["sv_model_path"],
+            mel_encoder_path=config["mel_encoder_path"],
+            projection_weights_path=config["projection_weights_path"],
+            prelu_weights=config["prelu_weights_path"],
+            device=device,
+            is_half=config["is_half"],
+            gin_channels=config["gin_channels"],
+            n_layers=config["n_layers"],
+            n_heads=config["n_heads"],
+            out_channels=config["out_channels"]
+        ).to(device)
     else:
         print("Using VADScoringModel")
         model = VADScoringModel(
@@ -288,7 +298,8 @@ def main():
             projection_weights_path=config["projection_weights_path"],
             device=device,
             is_half=config["is_half"],
-            gin_channels=config["gin_channels"]
+            gin_channels=config["gin_channels"],
+            
         ).to(device)
 
     # Train the model
