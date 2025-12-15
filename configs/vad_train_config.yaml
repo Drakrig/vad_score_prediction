@@ -4,6 +4,7 @@ epochs: 20 # modify this to your number of epochs
 learning_rate: 0.00001 # modify this to your learning rate
 weight_decay: 0.01 # modify this to your weight decay
 is_half: false # set to true if you want to use half precision training
+accamulation_steps: 16 # modify this to your gradient accumulation steps
 
 # Dataloader parameters
 num_workers: 8 # modify this to your number of workers
@@ -39,6 +40,9 @@ logging_interval: 100 # log training progress every 100 STEPS
 model_version: v3 # modify this to desired model version
 model_id: mkrausio/EmoWhisper-AnS-Small-v0.1
 out_channels: 16 # for projection in v3, modify this to your desired output channels
+#v1s specific
+n_layers: 4
+n_heads: 8
 
 # Loss parameters
 loss_type: kl # use 'mse' to MSE loss only, 'kl' to add KL divergence loss for regularization

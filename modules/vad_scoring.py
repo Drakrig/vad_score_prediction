@@ -1,6 +1,78 @@
+import numbers
 import torch
+import torch.nn.init as init
 from torch import nn
+from torch import Size, Tensor
+from typing import Union, List, Optional, Tuple
 from modules.ref_encoder import RefEncoder, RefEncoderWhisper
+
+# v1s components
+class AdaNorm(nn.Module):
+    def __init__(self, normalized_shape: Union[int, List[int], Size], k: float = 0.1, eps: float = 1e-5, bias: bool = False) -> None:
+        super(AdaNorm, self).__init__()
+        if isinstance(normalized_shape, numbers.Integral):
+            normalized_shape = (normalized_shape,)
+        self.normalized_shape = tuple(normalized_shape)
+        self.k = k
+        self.eps = eps
+        self.weight = nn.Parameter(torch.empty(self.normalized_shape))
+        if bias:
+            self.bias = nn.Parameter(torch.empty(self.normalized_shape))
+        else:
+            self.register_parameter('bias', None)
+
+        self.reset_parameters()
+
+    def reset_parameters(self) -> None:
+        init.ones_(self.weight)
+        if self.bias is not None:
+            init.zeros_(self.bias)
+
+    def forward(self, input: Tensor) -> Tensor:
+        mean = torch.mean(input, dim=-1, keepdim=True)
+        var = (input - mean).pow(2).mean(dim=-1, keepdim=True) + self.eps
+    
+        input_norm = (input - mean) * torch.rsqrt(var)
+        
+        adanorm = self.weight * (1 - self.k * input_norm) * input_norm
+
+        if self.bias is not None:
+            adanorm = adanorm + self.bias
+    
+        return adanorm
+
+class TransformerBlock(nn.Module):
+    def __init__(self, input_dim:int, output_dim:int, n_heads:int, d_ff:int, dropout:float=0.1):
+        super(TransformerBlock, self).__init__()
+        self.adanorm1 = AdaNorm(input_dim)
+        self.attn = nn.MultiheadAttention(input_dim, n_heads, dropout=dropout)
+        self.ff = nn.Sequential(
+            nn.Linear(input_dim, d_ff),
+            nn.GELU(),
+            nn.Linear(d_ff, output_dim)
+        )
+        # Upsample the feature map
+        self.adanorm2 = AdaNorm(input_dim)
+        self.dropout = nn.Dropout(dropout)
+    
+    def forward(self, x):
+        # Apply AdaNorm and Multihead Attention
+        x_norm = self.adanorm1(x)
+        x_attn = self.attn(x_norm, x_norm, x_norm)[0]
+        # Residual connection after attention
+        x_attn = x + self.dropout(self.adanorm2(x_attn))  # Residual with AdaNorm2
+        # Feedforward layer after attention and upsampling
+        x_ff = self.ff(x_attn)
+        x = x + self.dropout(x_ff)  # Residual connection after feedforward layer
+
+        return x
+
+class PositionalEmbedding(nn.Module):
+    def __init__(self, d_model):
+        super(PositionalEmbedding, self).__init__()
+        self.embedding = nn.Parameter(torch.randn(1, 1024, d_model))
+    def forward(self, x):
+        return x + self.embedding
 
 class VADScoringModel(nn.Module):
     """Model to predict VAD (varience,arousal,dominance) scores using a reference encoder based on Eres2NetV2 and MelEncoder fron TransferTTS."""
@@ -25,6 +97,90 @@ class VADScoringModel(nn.Module):
         ref_embedding = self.ref_encoder(spec, sv_ref, use_sv)
         vad_scores = self.classification_head(ref_embedding.squeeze(-1))
         return vad_scores
+
+class VADScoringModelTwoHeadedV2(nn.Module):
+    """Model to predict VAD (varience,arousal,dominance) scores using a reference encoder."""
+    def __init__(self, 
+                 sv_path,
+                 mel_encoder_path, 
+                 projection_weights_path, 
+                 prelu_weights, 
+                 device,
+                 n_layers=4,
+                 n_heads=8, 
+                 is_half=True,
+                 out_channels=1, 
+                 gin_channels=1024):
+        super(VADScoringModelTwoHeadedV2, self).__init__()
+        self.ref_encoder = RefEncoder(sv_path, mel_encoder_path, projection_weights_path, prelu_weights, device, is_half, gin_channels)
+        # Freeze encoder parameters
+        for param in self.ref_encoder.parameters():
+            param.requires_grad = False
+        self.positional_embedding = PositionalEmbedding(gin_channels).to(device)
+        # Define the transformer blocks
+        self.transformer_blocks = nn.ModuleList([
+            TransformerBlock(gin_channels, gin_channels, n_heads=n_heads, d_ff=2048, dropout=0.1) for _ in range(n_layers)
+        ]).to(device)
+        # Projection
+        self.projection = nn.Conv1d(gin_channels, out_channels, kernel_size=1).to(device)
+        # Define the means and stds heads
+        self.means_head = nn.Sequential(
+            nn.Linear(out_channels * gin_channels, gin_channels),
+            nn.GELU(),
+            nn.Dropout(0.25),
+            nn.Linear(gin_channels, 3),
+            nn.Tanh()  # Assuming scores are in the range [-1, 1]
+        ).to(device)
+        self.stds_head = nn.Sequential(
+            nn.Linear(out_channels * gin_channels, gin_channels),
+            nn.GELU(),
+            nn.Dropout(0.25),
+            nn.Linear(gin_channels, 3),
+            nn.Softplus()  # Must be positive
+        ).to(device)
+        if is_half:
+            self.positional_embedding.half()
+            for block in self.transformer_blocks:
+                block.half()
+            self.means_head.half()
+            self.stds_head.half()
+        self.means_head.to(device)
+        self.stds_head.to(device)
+        self.device = device
+
+    @torch.no_grad()
+    def encode(self, spec: torch.Tensor, sv_ref: torch.Tensor, use_sv: bool = True):
+        """Encode the spectrogram and speaker vector reference to get the embedding."""
+        ref_embedding = self.ref_encoder(spec, sv_ref, use_sv)
+        return ref_embedding
+
+    def forward(self, spec: torch.Tensor, sv_ref: torch.Tensor, use_sv: bool = True, normalize=True):
+        """Forward pass to compute VAD scores."""
+        ref_embedding = self.encode(spec, sv_ref, use_sv)
+        if normalize:
+            norm_factor = torch.stack([ref_embedding.max(dim=1).values, ref_embedding.min(dim=1).values.abs()]).T.max(dim=1).values.unsqueeze(0).T
+            ref_embedding = ref_embedding / norm_factor
+        ref_embedding = self.positional_embedding(ref_embedding.unsqueeze(-1))
+        for block in self.transformer_blocks:
+            ref_embedding = block(ref_embedding)
+        ref_embedding = self.projection(ref_embedding).flatten(start_dim=1)
+        means = self.means_head(ref_embedding)
+        stds = self.stds_head(ref_embedding)
+        return means, stds
+    
+    def load_weights(self, weights_path: str):
+        """Load weights from a file."""
+        states_dict = torch.load(weights_path, map_location="cpu")
+        self.positional_embedding.load_state_dict(states_dict["positional_embedding_state_dict"])
+        self.projection.load_state_dict(states_dict["projection_state_dict"])
+        self.transformer_blocks.load_state_dict(states_dict["transformer_blocks_state_dict"])
+        self.means_head.load_state_dict(states_dict["means_head_state_dict"])
+        self.stds_head.load_state_dict(states_dict["stds_head_state_dict"])
+        del states_dict["means_head_state_dict"]
+        del states_dict["stds_head_state_dict"]
+        del states_dict["positional_embedding_state_dict"]
+        del states_dict["projection_state_dict"]
+        del states_dict["transformer_blocks_state_dict"]
 
 class VADScoringModelV2(nn.Module):
     """Model to predict VAD (varience,arousal,dominance) scores using a reference encoder based on BUD-E-Whisper."""
@@ -62,7 +218,7 @@ class VADScoringModelV2(nn.Module):
         projected = self.projection(embeddings)
         scores = self.head(projected)
         return scores
-    
+    VADScoringModel
     def load_weights(self, weights_path: str):
         """Load weights from a file."""
         states_dict = torch.load(weights_path, map_location="cpu")
