@@ -1,5 +1,6 @@
 import torch    
 import torchaudio
+import torch.nn.functional as F
 from torch.utils.data import Dataset, DataLoader
 from configs.configuration_classes import TrainConfig
 from transformers import AutoProcessor, AutoConfig
@@ -13,10 +14,12 @@ def create_dataset(dataframe, config: TrainConfig):
     :return: An instance of EmotionAudioDataset or its subclass based on the model version.
     :rtype: EmotionAudioDataset or its subclass..
     """
-    if config["model_version"] == "v1":
-        return EmotionAudioDatasetForVAD(dataframe, config)
-    elif config["model_version"] == "v2" or config["model_version"] == "v3":
+    if config["model_version"] == "v1" or  config["model_version"] == "v1s":
+        return EmotionAudioDatasetForVADv1(dataframe, config)
+    elif config["model_version"] == "v2" or config["model_version"] == "v3" or config["model_version"] == "v3s":
         return EmotionAudioDatasetForVADv2(dataframe, config)
+    elif config["model_version"] == "v4":
+        return EmotionAudioDatasetForVADv4(dataframe, config)
     else:
         assert config["model_version"] == "decoder", f"Unsupported model version: {config['model_version']}"
         return EmotionAudioDatasetForDecoder(dataframe, config)
@@ -201,7 +204,7 @@ class EmotionAudioDatasetForVADv1(EmotionAudioDataset):
             self.config["win_length"],
             center=False,
         )
-        audio_tensor = self.resampler[self.config["mel_encoder_sr"]](resampled_waveform)
+        audio_tensor = self.resampler[self.config["mel_encoder_sr"]][self.config["sv_model_sr"]](resampled_waveform)
         return spec, audio_tensor
     
     
@@ -283,5 +286,65 @@ class EmotionAudioDatasetForVADv2(EmotionAudioDataset):
         )
         decoder_input_ids = torch.tensor([[1, 1]]) * self.decoder_start_token_id
         return inputs.input_features, decoder_input_ids
+
+class EmotionAudioDatasetForVADv4(EmotionAudioDataset):
+    def __init__(self, dataframe, config: TrainConfig):
+        super().__init__(dataframe, config)
+        self.is_half = config["is_half"]
+    
+    def __getitem__(self, idx):
+        """
+        Get item from the dataset.
+        Args:
+            idx (int): Index of the item to get.
+        Returns:
+            tuple: A tuple containing the spectrogram, audio tensor, and VAD means and stds.
+        """
+        row = self.dataframe.iloc[idx]
+        audio_path = row["full_path"]
+        pleasure_mean = row["pleasure_mean"]
+        pleasure_std = row["pleasure_std"]
+        arousal_mean = row["arousal_mean"]
+        arousal_std = row["arousal_std"]
+        dominance_mean = row["dominance_mean"]
+        dominance_std = row["dominance_std"]
+
+        # Create label tensor
+        vad_means = torch.tensor([pleasure_mean, arousal_mean, dominance_mean ], dtype=torch.float32)
+        vad_stds = torch.tensor([pleasure_std, arousal_std, dominance_std], dtype=torch.float32)
+        # Load and resample audio
+        audio_tensor = self.get_features(audio_path)
+        if self.is_half:
+            audio_tensor = audio_tensor.half()
+            vad_means = vad_means.half()
+            vad_stds = vad_stds.half()
+        return audio_tensor, vad_means, vad_stds
+    
+    def get_features(self, audio_path):
+        waveform, original_sr = torchaudio.load(audio_path)
+        if waveform.shape[0] > 1:
+            waveform = waveform.mean(dim=0, keepdim=True)
+        if original_sr != self.config["sv_model_sr"]: #16000
+            resampler = torchaudio.transforms.Resample(orig_freq=original_sr, new_freq=self.config["sv_model_sr"])
+            resampled_waveform = resampler(waveform)
+        else:
+            resampled_waveform = waveform
+        resampled_waveform =  F.layer_norm(resampled_waveform, resampled_waveform.shape).view(1, -1)
+        return resampled_waveform
+    
+    @staticmethod
+    def collate_fn(batch):
+        """
+        Custom collate function to handle variable-length sequences.
+        Args:
+            batch (list): List of tuples containing spectrogram, audio tensor, and VAD means and stds.
+        Returns:
+            tuple: A tuple containing the batched spectrograms, audio tensors, and VAD means and stds.
+        """
+        audio_tensors, vad_means, vad_stds = zip(*batch)
+        audio_tensors = pad_to_max_length(audio_tensors)
+        vad_means = torch.stack(vad_means)
+        vad_stds = torch.stack(vad_stds)
+        return audio_tensors, vad_means, vad_stds
 
 
