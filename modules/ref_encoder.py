@@ -3,6 +3,7 @@ from torch import nn
 from modules.melencoder import MelStyleEncoder
 from modules.sv import SV
 from transformers import AutoModelForSpeechSeq2Seq
+from modules.emo2vec.model import Emotion2vec
 
 class RefEncoder(nn.Module):
     """Reference Encoder that combines a speaker verification model and a mel-style encoder."""
@@ -84,4 +85,31 @@ class RefEncoderWhisper(nn.Module):
             last_hidden_state = self.model(input_features, decoder_input_ids=decoder_input_ids)
         
         return last_hidden_state
+
+class RefEncoderEmo2Vec(nn.Module):
+    def __init__(
+        self,
+        cfg: dict,
+        weights_path: str,
+        device,
+        is_half=True,
+    ):
+        super(RefEncoderEmo2Vec, self).__init__()
+        self.device = device
+        self.is_half = is_half
+        self.model = Emotion2vec(**cfg)
+        self.model.load_weights(weights_path)
+        if is_half:
+            self.model.half()
+        self.model.eval()
+    
+    def forward(self, input_features:torch.Tensor):
+        if self.is_half:
+            input_features = input_features.half().to(self.device)
+        else:
+            input_features = input_features.to(self.device)
+        
+        with torch.no_grad():
+            embed, features = self.model.inference(input_features)
+        return embed, features
         
