@@ -4,7 +4,7 @@ import torch.nn.init as init
 from torch import nn
 from torch import Size, Tensor
 from typing import Union, List, Optional, Tuple
-from modules.ref_encoder import RefEncoder, RefEncoderWhisper
+from modules.ref_encoder import RefEncoder, RefEncoderWhisper, RefEncoderEmo2Vec
 
 # v1s components
 class AdaNorm(nn.Module):
@@ -283,3 +283,68 @@ class VADScoringModelV3(nn.Module):
         del states_dict["means_head_state_dict"]
         del states_dict["stds_head_state_dict"]
         del states_dict["projection_state_dict"]
+
+class LearnableQuery(nn.Module):
+    def __init__(self, embed_dim):
+        super(LearnableQuery, self).__init__()
+        self.query = nn.Parameter(torch.randn(1, 1, embed_dim))
+    
+    def forward(self, batch_size):
+        return self.query.expand(batch_size, -1, -1)
+
+class VADScoringModelV4(nn.Module):
+    """Based on emotion2vec endoer."""
+    def __init__(self, cfg: dict, encoder_weights_path: str, device, n_heads=8, dropout=0.0, is_half=True, version="v4"):
+        super(VADScoringModelV4, self).__init__()
+        self.ref_encoder = RefEncoderEmo2Vec(cfg, encoder_weights_path, device, is_half)
+        # Freeze the reference encoder
+        for param in self.ref_encoder.parameters():
+            param.requires_grad = False
+
+        self.learnable_query = LearnableQuery(cfg.get("model_conf").get("embed_dim")).to(device)
+
+        self.attn = nn.MultiheadAttention(cfg.get("model_conf").get("embed_dim"), num_heads=n_heads, dropout=dropout, batch_first=True)
+
+        self.norm = nn.LayerNorm(cfg.get("model_conf").get("embed_dim")).to(device)
+
+        self.means_head = nn.Sequential(
+            nn.Flatten(),
+            nn.Linear(cfg.get("model_conf").get("embed_dim"), 512),
+            nn.GELU(),
+            nn.Dropout(0.25),
+            nn.Linear(512, 3),
+            nn.Tanh()
+        )
+        self.stds_head = nn.Sequential(
+            nn.Flatten(),
+            nn.Linear(cfg.get("model_conf").get("embed_dim"), 512),
+            nn.GELU(),
+            nn.Dropout(0.25),
+            nn.Linear(512, 3),
+            nn.Softplus()  # Ensure stds are positive
+        )
+        self.to(device)
+        if is_half:
+            self.means_head.half()
+            self.stds_head.half()
+
+    @torch.no_grad()
+    def encode(self, audio: torch.Tensor)->tuple[torch.Tensor, list[torch.Tensor,...]]:
+        """Encode the audio to get the embedding."""
+        embed, features = self.ref_encoder(audio)
+        return embed, features
+
+    def forward(self, audio: torch.Tensor):
+        """Forward pass to compute VAD scores."""
+        embed, _ = self.encode(audio)
+        if embed.ndim == 2:
+            embed = embed.unsqueeze(0)
+        # V2 scheme with attention
+        batch_size = embed.size(0)
+        query = self.learnable_query(batch_size)
+        normed_embed = self.norm(embed)
+        embed, _ = self.attn(query, normed_embed, normed_embed)
+        embed = embed.squeeze(1)
+        means = self.means_head(embed)
+        stds = self.stds_head(embed)
+        return means, stds
