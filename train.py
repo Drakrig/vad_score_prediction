@@ -7,7 +7,12 @@ from tqdm import tqdm
 import re
 
 from sklearn.model_selection import train_test_split
-from modules.vad_scoring import VADScoringModel, VADScoringModelV2, VADScoringModelV3, VADScoringModelTwoHeaded, VADScoringModelTwoHeadedV2
+from modules.vad_scoring import (
+    VADScoringModel, 
+    VADScoringModelV2, 
+    VADScoringModelV3, 
+    VADScoringModelTwoHeadedV2,
+    VADScoringModelV4)
 from data_tools.data_processing import create_dataset, create_dataloader
 
 import torch
@@ -30,18 +35,40 @@ def load_config(config_path: str) -> dict:
 
 def save_checkpoint(model, save_path: str, epoch: int, step: int, config: dict): 
     save_path = Path(config["save_dir"]) / f"vad_model_epoch_{epoch+1}_step_{step}.pth"
-    if re.search(r'v1', config["model_version"]) is not None:
+    if config["model_version"] == "v1":
         torch.save(model.classification_head.state_dict(), save_path)
-    elif re.search(r'v2', config["model_version"]) is not None:
+    elif config["model_version"] == "v1s":
+        torch.save({
+            "positional_embedding_state_dict": model.positional_embedding.state_dict(),
+            "means_head_state_dict": model.means_head.state_dict(),
+            "stds_head_state_dict": model.stds_head.state_dict(),
+            "projection_state_dict": model.projection.state_dict(),
+            "transformer_blocks_state_dict": model.transformer_blocks.state_dict()
+        }, save_path)
+    elif config["model_version"] == "v2":
         torch.save({
             "head_state_dict": model.head.state_dict(),
             "projection_state_dict": model.projection.state_dict()
         }, save_path)
-    else:
+    elif config["model_version"] == "v3" or config["model_version"] == "v3s":
         torch.save({
             "means_head_state_dict": model.means_head.state_dict(),
             "stds_head_state_dict": model.stds_head.state_dict(),
             "projection_state_dict": model.projection.state_dict()
+        }, save_path)
+    elif config["model_version"] == "v4":
+        torch.save({
+            # Common
+            "means_head_state_dict": model.means_head.state_dict(),
+            "stds_head_state_dict": model.stds_head.state_dict(),
+            # V2
+            "query_state_dict": model.learnable_query.state_dict(),
+            "attention_state_dict": model.attn.state_dict(),
+            "norm_state_dict": model.norm.state_dict(),
+        }, save_path)
+    else:
+        torch.save({
+            "classification_head_state_dict": model.classification_head.state_dict(),
         }, save_path)
     print(f"Model saved to {save_path}")
 
@@ -81,25 +108,39 @@ def kl_impact(step: int, config: dict) -> float:
 def train_model(model, dataloader: DataLoader, val_dataloader: DataLoader, device: str, config: dict, writer: SummaryWriter):
     """Train the VAD scoring model."""
     criterion = nn.MSELoss()
+    metric = nn.PairwiseDistance(p=2)  # L2 distance for evaluation
     # For V1 model we train the classification head only
-    if re.search(r'v1', config["model_version"]) is not None:
+    if config["model_version"] == "v1":
         optimizer = optim.AdamW(model.classification_head.parameters(), lr=config["learning_rate"], weight_decay=config["weight_decay"])
     else:
-        # For V2 and V3 model we train the classification head and projection layer
         decay = []
         no_decay = []
-        # Projection is fully trainable
-        for name, param in model.projection.named_parameters():
+        # Projection is common for v1s, v2 and v3 models
+        if not re.search(r'v4', config["model_version"]) is not None:
+            try:
+                for name, param in model.projection.named_parameters():
+                    decay.append(param)
+            except:
+                pass
+        # For V1s model we train the postional embedding, transformer blocks, projection layer and means and stds heads
+        if re.search(r'v1', config["model_version"]) is not None:
+            for name, param in model.positional_embedding.named_parameters():
                 decay.append(param)
-        if re.search(r'v2', config["model_version"]) is not None:
-            # PReLU is recommended not to be train with weight decay
+            for name, param in model.means_head.named_parameters():
+                decay.append(param)
+            for name, param in model.stds_head.named_parameters():
+                decay.append(param)
+            # V1s with attention
+            for name, param in model.transformer_blocks.named_parameters():
+                decay.append(param)
+        elif re.search(r'v2', config["model_version"]) is not None:
+            # For V2 model we train the projection layer and means head except PReLU alpha
             for name, param in model.head.named_parameters():
                 if 'prelu' in name:  # exclude PReLU alpha from weight decay
                     no_decay.append(param)
                 else:
                     decay.append(param)
-        else:
-            # In V3 we have means and stds heads
+        elif re.search(r'v3', config["model_version"]) is not None:
             for name, param in model.means_head.named_parameters():
                 if 'prelu' in name:  # exclude PReLU alpha from weight decay
                     no_decay.append(param)
@@ -110,6 +151,20 @@ def train_model(model, dataloader: DataLoader, val_dataloader: DataLoader, devic
                     no_decay.append(param)
                 else:
                     decay.append(param)
+        elif re.search(r'v4', config["model_version"]) is not None:
+            # For v4 model we train the projection layer, stds and means heads
+            for name, param in model.means_head.named_parameters():
+                decay.append(param)
+            for name, param in model.stds_head.named_parameters():
+                decay.append(param)
+            # V4 with attention
+            for name, param in model.learnable_query.named_parameters():
+                decay.append(param)
+            for name, param in model.attn.named_parameters():
+                decay.append(param)
+            # v4 with norm layer
+            for name, param in model.norm.named_parameters():
+                decay.append(param)
         
         optimizer = optim.AdamW(
             [
@@ -127,7 +182,7 @@ def train_model(model, dataloader: DataLoader, val_dataloader: DataLoader, devic
     for param in model.ref_encoder.parameters():
         param.requires_grad = False
     
-    accelerator = accelerate.Accelerator()
+    accelerator = accelerate.Accelerator(gradient_accumulation_steps=config["accamulation_steps"])
     model, optimizer, dataloader = accelerator.prepare(model, optimizer, dataloader)
     model = model.to(device)
 
@@ -136,82 +191,103 @@ def train_model(model, dataloader: DataLoader, val_dataloader: DataLoader, devic
     for epoch in range(config["epochs"]):
         total_loss = 0.0
         for batch in tqdm(dataloader, desc=f"Epoch {epoch+1}/{config['epochs']}"):
-            if re.search(r'v1', config["model_version"]) is not None:
-                specs, audio_tensors, vad_means, vad_stds = batch
-                specs, audio_tensors = specs.to(device), audio_tensors.to(device)
-            else:
-                input_features, decoder_input_ids, vad_means, vad_stds = batch
-            vad_means = vad_means.to(device)
-            optimizer.zero_grad()
+            with accelerator.accumulate(model):
+                if re.search(r'v1', config["model_version"]) is not None:
+                    specs, audio_tensors, vad_means, vad_stds = batch
+                    specs, audio_tensors = specs.to(device), audio_tensors.to(device)
+                if re.search(r'v4', config["model_version"]) is not None:
+                    audio_tensors, vad_means, vad_stds = batch
+                    audio_tensors = audio_tensors.to(device)
+                else:
+                    input_features, decoder_input_ids, vad_means, vad_stds = batch
+                vad_means = vad_means.to(device)
+                vad_stds = vad_stds.to(device) if config["loss_type"] == "kl" else None
+                optimizer.zero_grad()
 
-            if re.search(r'v1s', config["model_version"]) is not None:
-                predicted_means, predicted_stds = model(specs, audio_tensors, normalize=config["normalize_embeddings"])
-            elif re.search(r'v2', config["model_version"]) is not None:
-                predicted_means = model(input_features, decoder_input_ids)
-            elif re.search(r'v3', config["model_version"]) is not None:
-                predicted_means, predicted_stds = model(input_features, decoder_input_ids)
-            else: # v1
-                predicted_means = model(specs, audio_tensors)
-            
-            if config["loss_type"] == "mse":
-                loss = criterion(predicted_means, vad_means)
-            else:
-                # KL Divergence loss
-                loss = config["mean_loss_weight"] * criterion(predicted_means, vad_means)\
-                     + kl_impact(step, config) * kl_divergence_gaussians(predicted_means, predicted_stds, vad_means, vad_stds)
-                
-            accelerator.backward(loss)
-            optimizer.step()
+                if re.search(r'v1s', config["model_version"]) is not None:
+                    predicted_means, predicted_stds = model(specs, audio_tensors, normalize=config["normalize_embeddings"])
+                elif re.search(r'v2', config["model_version"]) is not None:
+                    predicted_means = model(input_features, decoder_input_ids)
+                elif re.search(r'v3', config["model_version"]) is not None:
+                    predicted_means, predicted_stds = model(input_features, decoder_input_ids)
+                elif re.search(r'v4', config["model_version"]) is not None:
+                    predicted_means, predicted_stds = model(audio_tensors)
+                else: # v1
+                    predicted_means = model(specs, audio_tensors)
 
-            total_loss += loss.item()
-            step += 1
-            # print loss every n steps
-            if accelerator.is_main_process and (step % config["logging_interval"] == 0):
-                current_epoch_step = (step - 1) % steps_per_epoch + 1
-                print(f"Step [{current_epoch_step}], Loss: {(total_loss / current_epoch_step):.4f}")
-                writer.add_scalar("Loss/train", loss.item(), step)
+                if config["loss_type"] == "mse":
+                    loss = criterion(predicted_means, vad_means)
+                else:
+                    # KL Divergence loss
+                    loss = config["mean_loss_weight"] * criterion(predicted_means, vad_means) + kl_impact(step, config) * kl_divergence_gaussians(predicted_means, predicted_stds, vad_means, vad_stds)
+                    
+                accelerator.backward(loss)
+                optimizer.step()
+                scheduler.step()
 
-            scheduler.step()
+                total_loss += loss.item()
+                step += 1
+                # print loss every n steps
+                if accelerator.is_main_process and (step % config["logging_interval"] == 0):
+                    current_epoch_step = (step - 1) % steps_per_epoch + 1
+                    print(f"Step [{current_epoch_step}], Loss: {(total_loss / current_epoch_step):.4f}")
+                    writer.add_scalar("Loss/train", total_loss / current_epoch_step, step)
         if accelerator.is_main_process:
             total_loss /= len(dataloader)
             print(f"Epoch [{epoch+1}/{config['epochs']}], Loss: {total_loss}")
             # Log training loss
-            writer.add_scalar("Loss/train_epoch", total_loss, epoch)
-            stats["train_loss"].append(total_loss)
+            writer.add_scalar("Loss/epoch/train", total_loss, epoch)
         # Calculate validation loss
         val_loss = 0.0
+        mean_mse_impact = 0.0
+        mean_kl_impact = 0.0
+        pairwise_value = 0.0
         with torch.no_grad():
             for val_batch in val_dataloader:
                 if config["model_version"] == "v1" or config["model_version"] == "v1s":
-                    val_specs, val_audio_tensors, val_vad_means, _ = val_batch
+                    val_specs, val_audio_tensors, val_vad_means, val_vad_stds = val_batch
                     val_specs, val_audio_tensors = val_specs.to(device), val_audio_tensors.to(device)
+                elif config["model_version"] == "v4":
+                    val_audio_tensors, val_vad_means, val_vad_stds = val_batch
+                    val_audio_tensors = val_audio_tensors.to(device)
                 else:
                     val_input_features, val_decoder_input_ids, val_vad_means, val_vad_stds = val_batch
-                    #val_specs = val_input_features.to(device)
-                    #val_audio_tensors = val_decoder_input_ids.to(device)
+                    val_input_features = val_input_features.to(device)
+                    val_decoder_input_ids = val_decoder_input_ids.to(device)
                 val_vad_means = val_vad_means.to(device)
                 val_vad_stds = val_vad_stds.to(device) if config["loss_type"] == "kl" else None
-                
+
                 if re.search(r'v1s', config["model_version"]) is not None:
                     val_means_predicted, val_stds_predicted = model(val_specs, val_audio_tensors, normalize=config["normalize_embeddings"])
                 elif re.search(r'v2', config["model_version"]) is not None:
                     val_means_predicted = model(val_input_features, val_decoder_input_ids)
                 elif re.search(r'v3', config["model_version"]) is not None:
                     val_means_predicted, val_stds_predicted = model(val_input_features, val_decoder_input_ids)
+                elif re.search(r'v4', config["model_version"]) is not None:
+                    val_means_predicted, val_stds_predicted = model(val_audio_tensors)
                 else: # v1
                     val_means_predicted = model(val_specs, val_audio_tensors)
-                
+
                 if config["loss_type"] == "mse":
                     loss = criterion(val_means_predicted, val_vad_means)
                 else:
                     # KL Divergence loss
-                    loss = config["mean_loss_weight"] * criterion(val_means_predicted, val_vad_means)\
-                         + kl_divergence_gaussians(val_means_predicted, val_stds_predicted, val_vad_means, val_vad_stds) * config["kl_max_weight"]
+                    mse_loss = criterion(val_means_predicted, val_vad_means)
+                    pairwise_value += metric(val_means_predicted, val_vad_means).mean().item()
+                    mean_mse_impact += mse_loss.item()
+                    kl_loss = kl_divergence_gaussians(val_means_predicted, val_stds_predicted, val_vad_means, val_vad_stds)
+                    mean_kl_impact += kl_loss.item()
+                    loss = config["mean_loss_weight"] * mse_loss + kl_loss * config["kl_max_weight"]
                 val_loss += loss.item()
         if accelerator.is_main_process:
             val_loss /= len(val_dataloader)
-            writer.add_scalar("Loss/val_epoch", val_loss, epoch)
-            stats["val_loss"].append(val_loss)
+            mean_mse_impact /= len(val_dataloader)
+            mean_kl_impact /= len(val_dataloader)
+            pairwise_value /= len(val_dataloader)
+            writer.add_scalar("Loss/epoch/val", val_loss, epoch)
+            writer.add_scalar("Metrics/mean_mse_impact", mean_mse_impact, epoch)
+            writer.add_scalar("Metrics/mean_kl_impact", mean_kl_impact, epoch)
+            writer.add_scalar("Metrics/pairwise_distance", pairwise_value, epoch)
             print(f"Validation Loss after epoch {epoch+1}: {val_loss}")
         # Save head checkpoint 
         if accelerator.is_main_process and (epoch + 1) % config["save_interval"] == 0:
@@ -225,8 +301,8 @@ def main():
     config = load_config(config_path)
     print_config(config)
 
-    # Configure save directory
-    config["save_dir"] = Path(config["save_dir"]) / f"{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}_scorer_{config['model_version']}_training"
+    task_name = f"{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}_scorer_{config['model_version']}_training"
+    config["save_dir"] = Path(config["save_dir"]) / task_name
     config["save_dir"].mkdir(parents=True, exist_ok=True)
     (config["save_dir"] / "configs").mkdir(parents=True, exist_ok=True)
     copy(config_path, config["save_dir"] / config_path)
@@ -235,7 +311,6 @@ def main():
     log_dir = Path(config["save_dir"]) / "logs"
     log_dir.mkdir(parents=True, exist_ok=True)
     writer = SummaryWriter(log_dir=log_dir, comment=f"{config['model_version']}_lr_{config['learning_rate']}_bs_{config['batch_size']}_loss_{config['loss_type']}]")
-
     # Set device
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -268,11 +343,19 @@ def main():
 
     train_dataloader = create_dataloader(train_dataset, config)
     val_dataloader = create_dataloader(val_dataset, config)
-
     # Initialize model
-    if re.search(r'v3', config["model_version"]) is not None:
+    if re.search(r'v4', config["model_version"]) is not None:
+        print("Using VADScoringModelV4")
+        cfg = yaml.safe_load(open(config["emo2vec_config"], "r"))
+        model = VADScoringModelV4(
+            cfg, 
+            config["emo2vec_model_weights"], 
+            device, 
+            is_half=config["is_half"]
+            )
+    elif re.search(r'v3', config["model_version"]) is not None:
         print("Using VADScoringModelV3")
-        model = VADScoringModelV3(device, out_channels=config["out_channels"], is_half=config["is_half"], model_id=config["model_id"], version=config["model_version"])
+        model = VADScoringModelV3(device=device, out_channels=config["out_channels"], is_half=config["is_half"], model_id=config["model_id"], version=config["model_version"])
     elif re.search(r'v2', config["model_version"]) is not None:
         print("Using VADScoringModelV2")
         model = VADScoringModelV2(device, is_half=config["is_half"], model_id=config["model_id"])
@@ -302,8 +385,11 @@ def main():
             
         ).to(device)
 
+    if config["is_half"]:
+        model = model.half()
     # Train the model
     train_model(model, train_dataloader, val_dataloader, device, config, writer)
+    writer.close()
 
 if __name__ == "__main__":
     main()
