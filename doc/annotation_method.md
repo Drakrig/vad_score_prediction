@@ -133,7 +133,17 @@ Both methods introduce noise into the data:
   - LLM score prediction inaccuracies.
   - Additional randomness from sampling means and stds.
 
+## 4. Balanced subset
+
+Despite the initial value distribution appearing reasonable, the dataset suffers from a strong imbalance between edge values and central values. The absolute number of samples clustered around the center of the distribution is very large, which leads to suboptimal model performance.
+
+To address this issue, a balanced subset was constructed by sampling values from the original dataset to achieve a more uniform distribution, particularly along the Valence and Dominance axes. This balancing improves model training by reducing bias toward neutral emotional states, encouraging better representation of extreme emotional conditions and overall better clasterization of results. The resulting distributions are shown below:
+
+![Pleasure Mean and Std Distribution](images/dataset_balanced_v_distribution.png)  
+![Arousal Mean and Std Distribution](images/dataset_balanced_a_distribution.png)  
+![Dominance Mean and Std Distribution](images/dataset_balanced_d_distribution.png)
+
 **Underlying assumptions**:
-1. Each emotion’s VAD distribution is approximately normal.
+1. Each emotion’s VAD distribution should be approximately normal.
 2. Sampled scores fall within the same distribution as the true values.
 3. The model can learn to approximate the correct distribution from embeddings, despite noise.

@@ -23,6 +23,10 @@ Two types of encoders are considered in the current work:
 - However, since Whisper was originally trained as an ASR model, it is optimized for extracting **semantic content** (text meaning) from audio.
 - This can lead to **semantic leaking**—a phenomenon where semantic content inadvertently influences emotion classification.
 
+### 1.3 Emotion2Vec-base
+- Good backbone with clear and strong output. The model is showing a good internal clasterization ability.
+- Seems to be intacked by the semantics.
+
 ---
 
 ## 2. Phenomenon: Semantic Leaking

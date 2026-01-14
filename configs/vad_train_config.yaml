@@ -1,10 +1,10 @@
 # General training parameters 
-batch_size: 128 # modify this to your batch size, 128 consumes ~20Gb of VRAM
+batch_size: 8 # modify this to your batch size, 128 consumes ~20Gb of VRAM
 epochs: 20 # modify this to your number of epochs
 learning_rate: 0.00001 # modify this to your learning rate
 weight_decay: 0.01 # modify this to your weight decay
 is_half: false # set to true if you want to use half precision training
-accamulation_steps: 16 # modify this to your gradient accumulation steps
+accamulation_steps: 32 # modify this to your gradient accumulation steps
 
 # Dataloader parameters
 num_workers: 8 # modify this to your number of workers
@@ -33,20 +33,26 @@ random_state: 42 # random state for reproducibility
 
 # Saving and logging parameters
 save_dir: /path/to/save/results/ # modify this to your save directory
-save_interval: 1 # save model every EPOCH
+save_interval: 1 # save model every N_EPOCH
 logging_interval: 100 # log training progress every 100 STEPS
 
 # Model architecture parameters
-model_version: v3 # modify this to desired model version
-model_id: mkrausio/EmoWhisper-AnS-Small-v0.1
-out_channels: 16 # for projection in v3, modify this to your desired output channels
+model_version: v4 # modify this to desired model version
+#vXs
+out_channels: 16 # for projection in vXs, modify this to your desired output channels
+normalize_embeddings: true # whether to normalize emotion embeddings before passing to further layers
 #v1s specific
 n_layers: 4
 n_heads: 8
+# v3s specific
+model_id: mkrausio/EmoWhisper-AnS-Small-v0.1
+#v4
+emo2vec_config: /path/to/config.yaml # modify this to your emo2vec model config path
+emo2vec_model_weights: /path/to/model.pt # modify this to your emo2vec model weights path
 
 # Loss parameters
 loss_type: kl # use 'mse' to MSE loss only, 'kl' to add KL divergence loss for regularization
 kl_cycle_length: 1 # Amount of steps to reset weight for KL divergence loss, if set to 1, it will always stay constant to max value
-kl_max_weight: 1 # Max weight for KL divergence loss
-kl_min_weight: 1 # Min weight for KL divergence loss
+kl_max_weight: 0.1 # Max weight for KL divergence loss
+kl_min_weight: 0.1 # Min weight for KL divergence loss
 mean_loss_weight: 1.0 # weight for mean loss

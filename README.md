@@ -4,9 +4,11 @@
 There are three main versions of the model architecture:
 
 - **V1:** Uses the MelEncoder as described in [this paper](https://arxiv.org/abs/2106.03153) and the [ERes2NetV2 Speaker Recognition Model](https://modelscope.cn/models/iic/speech_eres2netv2w24s4ep4_sv_zh-cn_16k-com).
+- **V1s:** Uses same backbone as V1, but predicts mean value and standart deviation for VAD-scores. 
 - **V2:** Utilizes the BUD-E Whisper model to extract feature embeddings and applies a simple MLP head to predict a vector of VAD scores.
 - **V3:** Also uses the [BUD-E Whisper](https://huggingface.co/laion/BUD-E-Whisper) model for feature embeddings, but employs a more complex two-head system to predict the means and standard deviations of VAD scores. This approach better captures the variability in emotion annotations.
 - **V3s:** Similar to V3, but uses GELU activation instead of PReLU in the MLP heads. It has almost the same performance as V3, but is more efficient in terms of memory usage.
+- **V4:** Uses [Emotion2Vector large model](https://huggingface.co/emotion2vec/emotion2vec_plus_large) as a backbone, followed by learnable query and attention. Uses two heads architecture as vXs. The emo2vec realization for realization is taken from [FunASR toolkit](https://github.com/modelscope/FunASR/tree/main)
 
 For more detailed information about the architecture, check the [architecture overview](doc/architecture_overview.md) document.
 
@@ -16,6 +18,10 @@ Model weights are available on [Hugging Face](https://huggingface.co/drakrig/vad
 1. **V3** weight in root directory of the repository. The model was trained on the Laion's Got Talent (Enhanced Flash Annotations and Long Captions) dataset with Variant 1 annotation approach, which is described in detail in the [annotation methodology document](doc/annotation_method.md).
 
 2. **V3s** weight in the `scorer_v3s_16_final` directory. This model was trained on the same dataset but with Variant 2 annotation approach, which is described in the same document. The model uses GELU activation instead of PReLU in the MLP heads, as well as projection layers applied to encoder output embeddings. This model is more memory efficient and has almost the same performance (loss wise) as V3. Model configuration is available in the `scorer_v3s_16_final/configs/vad_train_config.yaml` file.
+
+**Update** Also V3s weights trained on the same data as **V4** available in the same repository in `v3s_balanced` directory. This time all checkpoints are available for testing.
+
+3. **V4** weights in the `v4_balanced` directory. Overall, subjectively, this variant perform the best especially when it comes to determined Dominance scores.
 
 ## Configuration files
 For simplicity reason, configuratuon is done through a YAML file. Check the "vad_train_config.yaml" file for example. All parameters that must be adjusted are marked with comments. Parameters that are NOT marked with comments must stay as they are, since they are model specific and should not be changed.
@@ -40,16 +46,28 @@ If your dataset contains categorical emotion labels, you can use the mapping tab
 
 Also, you can download extracted mapping table from Google Drive [here](https://drive.google.com/file/d/1AajCZiIwAPrQ7W2bbGpgBFyAT2b0nzz_/view?usp=sharing).
 
+## Which model to choose?
+
+Choose between **V4** and **V3s**, considering the following characteristics:
+
+1. **V3s** tends to misinterpret high arousal as high valence and shows a bias toward lower valence scores.
+2. **V4** tends to smooth arousal means toward zero, reducing the magnitude of extreme values.
+4. **V4** is better when it comes to determining extreme expressivness in dominance values.
+3. **V4** is more robust to semantic leakage, making it more stable when semantic content influences emotional predictions.
+
 ## Roadmap
 
 - [+] Upload V3 weights to Hugging Face
 - [+] Upload V3s weights to Hugging Face
+- [+] Upload V3s weights trained on a balanced dataset to Hugging Face
+- [+] Upload V4 weights trained on a balanced dataset to Hugging Face
 - [+] Upload formatted emotion to VAD score mapping table
 - [ ] Add more documentation on how to use the model
-- [ ] Implement and train V1 model with mean and standard deviation heads
+- [-] Implement and train V1 model with mean and standard deviation heads (Model showed a very poor performance)
 
 ## Credits
 
 1. [GPT SoVITS](https://github.com/RVC-Boss/GPT-SoVITS) for initial ideas and code for certain modules.
 2. [LaionAI](https://laion.ai) for the [Laion's Got Talent (Enhanced Flash Annotations and Long Captions) dataset](https://huggingface.co/datasets/laion/laions_got_talent_enhanced_flash_annotations_and_long_captions) as well as the [BUD-E Whisper](https://huggingface.co/laion/BUD-E-Whisper) model.
 3. [MER2025](https://huggingface.co/datasets/MERChallenge/MER2025)
+4. [FanASR](https://github.com/modelscope/FunASR/tree/main)
